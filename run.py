@@ -34,7 +34,7 @@ else:
     
 if args.detect:
     if os.path.isfile(os.path.join(output_dir,'subs')):
-        overwrite = raw_input("output directory already exists. Press y to overwrite")
+        overwrite = input("output directory already exists. Press y to overwrite")
         if overwrite == 'y':
             print('overwriting subs')
             try:
@@ -47,7 +47,7 @@ if args.detect:
             print('exit')
             exit()
 
-    print "detecting substitutions. That step might take some time..."
+    print("detecting substitutions. That step might take some time...")
     try:
         import detect
     except:
@@ -56,7 +56,7 @@ if args.detect:
 if args.quantify:
     if os.path.isfile(os.path.join(output_dir,'subs')):
         if os.path.isfile(os.path.join(output_dir,'qSubs')):
-            overwrite = raw_input("output directory already exists. Press y to overwrite")
+            overwrite = input("output directory already exists. Press y to overwrite")
             if overwrite == 'y':
                 print('overwriting qSsubs')
                 try:
@@ -68,13 +68,13 @@ if args.quantify:
         except:
             "this didn't go smoothly. Please check the parameters in the params.py file"
     else:
-        print "subs not found. Please run detect first"
+        print("subs not found. Please run detect first")
         
 if args.plot:
     if os.path.isfile(os.path.join(output_dir,'subs')):
         try:
             import plot
         except:
-            print "problems happened during the plotting..."
+            print("problems happened during the plotting...")
     else:
-        print "subs not found. Please run detect first"
+        print("subs not found. Please run detect first")

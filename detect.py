@@ -23,7 +23,7 @@ def codonify(seq):
     """
     seq = str(seq)
     l = len(seq)
-    return [seq[i:i+3] for i in xrange(0,l,3)]
+    return [seq[i:i+3] for i in range(0,l,3)]
 
 
 def find_proteins(base_seq):
@@ -124,7 +124,7 @@ def refine_localization_probabilities(modified_seq, threshold = 0.05):
             site_probabilities[aa] += weight
         else:
             site_probabilities[aa] = weight
-    return ";".join([k for k,v in site_probabilities.items() if v>threshold])
+    return ";".join([k for k,v in list(site_probabilities.items()) if v>threshold])
 
 
 def c_term_probability(modified_sequence):
@@ -169,13 +169,13 @@ def is_prot_cterm(sequence):
 
 
 def get_codon_table():
-    return dict(zip(codons, amino_acids))
+    return dict(list(zip(codons, amino_acids)))
 
 
 def get_inverted_codon_table():
     ct = get_codon_table()
     inv_codon_table = {}
-    for k, v in ct.iteritems():
+    for k, v in ct.items():
         inv_codon_table[v] = inv_codon_table.get(v, [])
         inv_codon_table[v].append(k)
     return inv_codon_table
@@ -358,13 +358,13 @@ subs_dict = { i+' to '+j : MW_dict[j] - MW_dict[i] for i in MW_dict for j in MW_
 del subs_dict['L to I']
 del subs_dict['I to L']
 
-for k,v in subs_dict.items(): # unifies I and L
+for k,v in list(subs_dict.items()): # unifies I and L
     if k[-1]=='I':
         subs_dict[k+'/L'] = v
         del subs_dict[k]
         del subs_dict[k[:-1]+'L']
 
-sorted_subs, sorted_sub_masses = zip(*sorted(subs_dict.items(), key= lambda x: x[1]))
+sorted_subs, sorted_sub_masses = list(zip(*sorted(list(subs_dict.items()), key= lambda x: x[1])))
 
 
 """ Loads CDS fasta file and builds records of genes within it """
@@ -377,7 +377,7 @@ W_codons = []
 for record in SeqIO.parse(open(path_to_fasta,'rU'),'fasta'):
     record.seq = record.seq.upper()    
     if is_gene(record):
-        translation = unicode(record.seq.translate())
+        translation = str(record.seq.translate())
         bits = record.description.split(' ')
         for i in bits:
             if 'gene_symbol' in i:
@@ -398,11 +398,11 @@ sa_ambiguous = suffix_array(W_aa_ambiguous)
 AAs = 'ACDEFGHIKLMNPQRSTVWY'
 sites = list(AAs)+['nterm','cterm']
 
-dp_columns = [u'Raw file', u'Charge', u'm/z', u'Retention time', 
-              u'Sequence', u'Proteins', u'DP Base Sequence',
-              u'DP Mass Difference', u'DP Time Difference', u'DP PEP',
-              u'DP Base Sequence', u'DP Probabilities', 
-              u'DP Positional Probability', u'DP Decoy']
+dp_columns = ['Raw file', 'Charge', 'm/z', 'Retention time', 
+              'Sequence', 'Proteins', 'DP Base Sequence',
+              'DP Mass Difference', 'DP Time Difference', 'DP PEP',
+              'DP Base Sequence', 'DP Probabilities', 
+              'DP Positional Probability', 'DP Decoy']
 
 df_iter = pd.read_csv(path_to_allPeptides, sep='\t', chunksize = 10000, iterator=True, usecols=dp_columns)
 dp = pd.concat( chunk[pd.notnull(chunk['DP Mass Difference'])] for chunk in df_iter)
@@ -491,7 +491,7 @@ subs = subs[subs['modified_sequence'].map(lambda x: find_homologous_peptide(x))]
 
 subs.sort_values('DP PEP', inplace = True)
 subs['decoy'] = pd.notnull(subs['DP Decoy'])
-cut_off = np.max(np.where(np.array([i/float(j) for i,j in zip(subs['decoy'].cumsum(), range(1,len(subs)+1))])<fdr))
+cut_off = np.max(np.where(np.array([i/float(j) for i,j in zip(subs['decoy'].cumsum(), list(range(1,len(subs)+1)))])<fdr))
 subs = subs.iloc[:cut_off+1]
 
 #%%

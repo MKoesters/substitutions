@@ -37,7 +37,7 @@ def get_BP_intensities(peptide, charge):
     y = x[x['Charge']==charge].groupby('Sample')['Intensity'].sum()
     return y.reindex(samples)
 
-columns_evidence = [u'Raw file', u'Retention time', u'Calibrated retention time', u'Intensity', u'Charge']
+columns_evidence = ['Raw file', 'Retention time', 'Calibrated retention time', 'Intensity', 'Charge']
 
 
 """
@@ -79,12 +79,12 @@ pep_head = pd.read_csv(path_to_peptides,
                   nrows = 10,
                   index_col = 'Sequence')
 
-intensities = [unicode(i) for i in pep_head.columns if 'Intensity ' in i]
+intensities = [str(i) for i in pep_head.columns if 'Intensity ' in i]
 samples = [i.split()[-1] for i in intensities]
 samples = [i for i in samples if not i in excluded_samples]
 intensities = ['Intensity '+i for i in samples]
 
-pep_columns = [u'Sequence', u'Intensity', u'Evidence IDs'] + intensities
+pep_columns = ['Sequence', 'Intensity', 'Evidence IDs'] + intensities
 
 pep = pd.read_csv(path_to_peptides,
                   sep = '\t', 

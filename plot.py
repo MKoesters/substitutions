@@ -14,12 +14,12 @@ from params import output_dir
 def hamming(s1,s2): return sum(a!=b for a,b in zip(s1,s2))    
 
 def get_codon_table():
-	return dict(zip(codons, amino_acids))
+	return dict(list(zip(codons, amino_acids)))
 	
 def get_inverted_codon_table():
 	ct = get_codon_table()
 	inv_codon_table = {}
-	for k, v in ct.iteritems():
+	for k, v in ct.items():
 		inv_codon_table[v] = inv_codon_table.get(v, [])
 		inv_codon_table[v].append(k)
 	return inv_codon_table
@@ -35,8 +35,8 @@ def prepare_count_matrix(df):
         for col in matrix.columns:
             if (label in inverted_codon_table[col]) or (codon_table[label] +' to '+col in exact_PTM_spec_list):
                 matrix.loc[label, col] = float('NaN')
-    subs_agg = pd.DataFrame(np.array(zip(*df.groupby(['protein','position','origin','destination','codon']).groups.keys())).T, columns=['protein','position','origin','destination','codon'])												
-    for x, l in subs_agg.groupby(['codon', 'destination']).groups.items():
+    subs_agg = pd.DataFrame(np.array(list(zip(*list(df.groupby(['protein','position','origin','destination','codon']).groups.keys())))).T, columns=['protein','position','origin','destination','codon'])												
+    for x, l in list(subs_agg.groupby(['codon', 'destination']).groups.items()):
         codon, destination = x
         if (codon in matrix.index) and pd.notnull(matrix.loc[codon,destination]):
             matrix.loc[codon,destination] = len(l)
@@ -86,14 +86,14 @@ MW_dict = {"G": 57.02147,
             "W" : 186.07932,
             }
 
-aas_sorted_by_mass = [i[0] for i in sorted(MW_dict.items(),key=lambda x:x[1])]
+aas_sorted_by_mass = [i[0] for i in sorted(list(MW_dict.items()),key=lambda x:x[1])]
 danger_mods = pd.read_pickle('danger_mods')
 exact_PTM_spec = pd.DataFrame(index = aas_sorted_by_mass,
                               columns = aas_sorted_by_mass,
                               dtype = int)
 
-for aa1 in MW_dict.keys():
-	for aa2 in MW_dict.keys():
+for aa1 in list(MW_dict.keys()):
+	for aa2 in list(MW_dict.keys()):
 		delta_m = MW_dict[aa2] - MW_dict[aa1]
 		exact_PTM_spec.loc[aa1,aa2]=len(danger_mods[(danger_mods['delta_m']<delta_m + 0.0005) & (danger_mods['delta_m']>delta_m - 0.0005) & (danger_mods['site']==aa1)]) > 0
 
