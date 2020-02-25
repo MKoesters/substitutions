@@ -9,7 +9,14 @@ import numpy as np
 import os
 from matplotlib import pyplot as plt
 import seaborn as sns
-from params import output_dir
+# from params import output_dir
+import logging
+
+
+def create_logger():
+    logger = logging.getLogger(__name__)
+    logging.basicConfig(level=logging.INFO)
+    return logger
 
 
 def hamming(s1, s2):
@@ -78,6 +85,8 @@ def probe_mismatch(codon1, codon2, pos, spec):
 
 
 def main(param_dict):
+    logger = create_logger()
+    logger.info('Plotting heatmap ...')
     bases = "UCAG"
     codons = [a + b + c for a in bases for b in bases for c in bases]
 
@@ -176,6 +185,15 @@ def main(param_dict):
     ax.set_ylabel("original codon", fontdict=font)
     ax.set_xlabel("destination amino acid", fontdict=font)
     ax.tick_params(labelsize=12)
-    fig.savefig("heatmap.pdf", bbox_inches="tight")
+    fig.savefig(
+        os.path.join(param_dict["output_dir"], "heatmap.pdf"),
+        bbox_inches="tight"
+    )
 
-    data.to_pickle("unique_substitutions_count_matrix")
+    data.to_pickle(
+        os.path.join(
+            param_dict["output_dir"],
+            "unique_substitutions_count_matrix"
+        )
+    )
+    logger.info('Finished plotting')
