@@ -546,6 +546,7 @@ def main(param_dict):
 
         dp.loc[site_filter & term_filter & mass_filter, "danger"] = True
 
+    logger.info('Keep massshifts mapping to aminoacid exchange')
     dp["substitution"] = False
     for i in sorted(subs_dict.keys()):
         delta_m = subs_dict[i]
@@ -563,6 +564,7 @@ def main(param_dict):
     """
     Create mask for mispairing. A binary dataframe indicating for each codon the AAs encoded by near-cognate codons.
     """
+    logger.info('Map codons to detected substitutions')
     mask = pd.DataFrame(
         data=False, index=codons, columns=list("ACDEFGHKLMNPQRSTVWY"), dtype=float
     )

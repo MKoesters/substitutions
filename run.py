@@ -41,7 +41,6 @@ def parse_params(param_file):
 def create_logger():
     logger = logging.getLogger(__name__)
     logging.basicConfig(level=logging.INFO)
-
     return logger
 
 
@@ -86,7 +85,7 @@ if args.detect:
     if os.path.isfile(os.path.join(param_dict["output_dir"], "subs")):
         overwrite = input("output directory already exists. Press y to overwrite: ")
         if overwrite.lower() == "y":
-            logger.info("overwriting subs")
+            logger.warning("overwriting subs")
             os.remove(os.path.join(param_dict["output_dir"], "subs"))
             os.remove(os.path.join(param_dict["output_dir"], "subs.csv"))
         else:
@@ -101,7 +100,7 @@ if args.quantify:
         if os.path.isfile(os.path.join(param_dict["output_dir"], "qSubs")):
             overwrite = input("output directory already exists. Press y to overwrite")
             if overwrite == "y":
-                logger.info("overwriting qSsubs")
+                logger.warning("overwriting qSsubs")
                 try:
                     os.remove(param_dict["output_dir"] + "/qSubs")
                 except OSError:
