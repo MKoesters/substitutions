@@ -7,13 +7,38 @@ Created on Tue Aug  2 13:24:37 2016
 
 import pandas as pd
 import numpy as np
+import logging
 import re
 from Bio import SeqIO
 from itertools import groupby
 from operator import itemgetter
-from params import *
 import warnings
 import os
+from functools import partial
+
+
+def create_logger():
+    logger = logging.getLogger(__name__)
+    logging.basicConfig(level=logging.DEBUG)
+
+    # Create handlers
+    # c_handler = logging.StreamHandler()
+    # # f_handler = logging.FileHandler('file.log')
+    # c_handler.setLevel(logging.DEBUG)
+    # # f_handler.setLevel(logging.ERROR)
+
+    # # Create formatters and add it to handlers
+    # c_format = logging.Formatter('%(name)s - %(levelname)s - %(message)s')
+    # # f_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    # c_handler.setFormatter(c_format)
+    # # f_handler.setFormatter(f_format)
+
+    # # Add handlers to the logger
+    # logger.addHandler(c_handler)
+    # logger.addHandler(f_handler)
+
+    return logger
+
 
 #%%
 def codonify(seq):
@@ -26,10 +51,10 @@ def codonify(seq):
     return [seq[i : i + 3] for i in range(0, l, 3)]
 
 
-def find_proteins(base_seq):
+def find_proteins(base_seq, boundaries_aa=None, W_aa=None, sa=None, names_list=None):
     """
     input: a peptide sequence (string)
-    output: the names of proteins containing that sequence 
+    output: the names of proteins containing that sequence
     """
     tbr = " ".join(
         [
@@ -43,16 +68,16 @@ def find_proteins(base_seq):
         return tbr
 
 
-def fetch_codon(base_seq, modified_pos):
+def fetch_codon(base_seq, modified_pos, find_proteins_func=None, record_dict=None):
     """
     input: the original aa sequence of a peptide (base_seq),
             and the relative position of the modification.
-    output: returns the list of all codons possibly associated 
+    output: returns the list of all codons possibly associated
             with the substitution, presented as a string separated
             by white spaces.
     """
     possible_codons = []
-    proteins = find_proteins(base_seq)
+    proteins = find_proteins_func(base_seq)
     if proteins:
         proteins = proteins.split(" ")
     else:
@@ -68,7 +93,7 @@ def fetch_codon(base_seq, modified_pos):
     return " ".join(possible_codons)
 
 
-def fetch_best_codons(modified_seq):
+def fetch_best_codons(modified_seq, find_proteins_func=None, record_dict=None):
     """
     input: a modified sequence, e.g. LQV(0.91)A(0.09)EK
     output: the list of codons associated with the most likely
@@ -81,10 +106,15 @@ def fetch_best_codons(modified_seq):
     ]
     modified_pos = len(re.sub("\(([^\)]+)\)", "", modified_seq[:modified_pos_prime]))
     base_seq = re.sub("\(([^\)]+)\)", "", modified_seq)
-    return fetch_codon(base_seq, modified_pos)
+    return fetch_codon(
+        base_seq,
+        modified_pos,
+        find_proteins_func=find_proteins_func,
+        record_dict=record_dict,
+    )
 
 
-def find_substitution_position_local(modified_seq, protein):
+def find_substitution_position_local(modified_seq, protein, record_dict=None):
     """
     returns the position of a substitutions relative to the start
     of the protein sequence
@@ -102,14 +132,20 @@ def find_substitution_position_local(modified_seq, protein):
     return i
 
 
-def find_positions_local(modified_seq, proteins):
+def find_positions_local(modified_seq, proteins, record_dict=None):
     """
     returns the position of a substitutions relative to the start
     of the protein sequence, across all the codons
     """
     positions = []
     for prot in proteins.split(" "):
-        positions.append(str(find_substitution_position_local(modified_seq, prot)))
+        positions.append(
+            str(
+                find_substitution_position_local(
+                    modified_seq, prot, record_dict=record_dict
+                )
+            )
+        )
     return " ".join(positions)
 
 
@@ -162,7 +198,7 @@ def n_term_probability(modified_sequence):
         return 0.0
 
 
-def is_prot_nterm(sequence):
+def is_prot_nterm(sequence, W_aa=None, sa=None):
     """
     Does the peptide originate at the protein's N-term
     """
@@ -174,7 +210,7 @@ def is_prot_nterm(sequence):
     return False
 
 
-def is_prot_cterm(sequence):
+def is_prot_cterm(sequence, W_aa=None, sa=None):
     l = len(sequence)
     for start in SA_search(sequence, W_aa, sa):
         end = start + l
@@ -183,12 +219,11 @@ def is_prot_cterm(sequence):
     return False
 
 
-def get_codon_table():
+def get_codon_table(codons, amino_acids):
     return dict(list(zip(codons, amino_acids)))
 
 
-def get_inverted_codon_table():
-    ct = get_codon_table()
+def get_inverted_codon_table(ct):
     inv_codon_table = {}
     for k, v in ct.items():
         inv_codon_table[v] = inv_codon_table.get(v, [])
@@ -200,7 +235,7 @@ def hamming(s1, s2):
     return sum(a != b for a, b in zip(s1, s2))
 
 
-def is_mispairing(row):
+def is_mispairing(row, mask=None):
     """
     Returns whether the substitution is mispairing or misloading, based on the
     near-cognate mask.
@@ -218,12 +253,12 @@ def is_mispairing(row):
 
 def suffix_array(text, _step=16):
     """Analyze all common strings in the text.
-    
-    Short substrings of the length _step a are first pre-sorted. The are the 
+
+    Short substrings of the length _step a are first pre-sorted. The are the
     results repeatedly merged so that the garanteed number of compared
     characters bytes is doubled in every iteration until all substrings are
     sorted exactly.
-    
+
     Arguments:
         text:  The text to be analyzed.
         _step: Is only for optimization and testing. It is the optimal length
@@ -231,7 +266,7 @@ def suffix_array(text, _step=16):
                faster if there is enough memory. Memory requirements are
                approximately (estimate for 32 bit Python 3.3):
                    len(text) * (29 + (_size + 20 if _size > 2 else 0)) + 1MB
-    
+
     Return value:      (tuple)
       (sa, rsa, lcp)
         sa:  Suffix array                  for i in range(1, size):
@@ -244,7 +279,7 @@ def suffix_array(text, _step=16):
                    assert text[sa[i-1] + lcp[i]] < text[sa[i] + lcp[i]]
     >>> suffix_array(text='banana')
     ([5, 3, 1, 0, 4, 2], [3, 2, 5, 1, 4, 0], [0, 1, 3, 0, 0, 2])
-    
+
     Explanation: 'a' < 'ana' < 'anana' < 'banana' < 'na' < 'nana'
     The Longest Common String is 'ana': lcp[2] == 3 == len('ana')
     It is between  tx[sa[1]:] == 'ana' < 'anana' == tx[sa[2]:]
@@ -300,7 +335,7 @@ def SA_search(P, W, sa):
     l = 0
     r = n
     while l < r:
-        mid = (l + r) / 2
+        mid = int((l + r) / 2)
         a = sa[mid]
         if P > W[a : a + lp]:
             l = mid + 1
@@ -309,7 +344,7 @@ def SA_search(P, W, sa):
     s = l
     r = n
     while l < r:
-        mid = (l + r) / 2
+        mid = int((l + r) / 2)
         a = sa[mid]
         if P < W[a : a + lp]:
             r = mid
@@ -318,7 +353,7 @@ def SA_search(P, W, sa):
     return [sa[i] for i in range(s, r)]
 
 
-def find_homologous_peptide(P):
+def find_homologous_peptide(P, W_aa_ambiguous=None, sa_ambiguous=None):
     """
     Gets a peptide and returns whether it has homolegous in the genome.
     If so, that peptide is discarded.
@@ -344,236 +379,282 @@ def create_modified_seq(modified_seq, destination):
 
 
 #%%
-warnings.filterwarnings("ignore")
-bases = "TCAG"
-codons = [a + b + c for a in bases for b in bases for c in bases]
-amino_acids = "FFLLSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG"  # corresponds to codons
-RC = {"A": "T", "C": "G", "G": "C", "T": "A"}
-
-codon_table = get_codon_table()
-inverted_codon_table = get_inverted_codon_table()
-inverted_codon_table["L"] = inverted_codon_table["L"] + inverted_codon_table["I"]
-MW_dict = {
-    "G": 57.02147,
-    "A": 71.03712,
-    "S": 87.03203,
-    "P": 97.05277,
-    "V": 99.06842,
-    "T": 101.04768,
-    "I": 113.08407,
-    "L": 113.08407,
-    "N": 114.04293,
-    "D": 115.02695,
-    "Q": 128.05858,
-    "K": 128.09497,
-    "E": 129.0426,
-    "M": 131.04049,
-    "H": 137.05891,
-    "F": 147.06842,
-    "R": 156.10112,
-    "C": 160.030654,  # CamCys
-    "Y": 163.0633,
-    "W": 186.07932,
-}
-
-subs_dict = {
-    i + " to " + j: MW_dict[j] - MW_dict[i] for i in MW_dict for j in MW_dict if i != j
-}
-del subs_dict["L to I"]
-del subs_dict["I to L"]
-
-for k, v in list(subs_dict.items()):  # unifies I and L
-    if k[-1] == "I":
-        subs_dict[k + "/L"] = v
-        del subs_dict[k]
-        del subs_dict[k[:-1] + "L"]
-
-sorted_subs, sorted_sub_masses = list(
-    zip(*sorted(list(subs_dict.items()), key=lambda x: x[1]))
-)
 
 
-""" Loads CDS fasta file and builds records of genes within it """
-record_list = []
-translated_record_list = []
-names_list = []
-record_dict = {}
-boundaries_aa = [0]
-W_codons = []
-for record in SeqIO.parse(open(path_to_fasta, "rU"), "fasta"):
-    record.seq = record.seq.upper()
-    if is_gene(record):
-        translation = str(record.seq.translate())
-        bits = record.description.split(" ")
-        for i in bits:
-            if "gene_symbol" in i:
-                record.name = i.split(":")[-1]
-        record_list.append(record)
-        translated_record_list.append(translation)
-        names_list.append(record.name)
-        record_dict[record.name] = record
-        boundaries_aa.append(boundaries_aa[-1] + len(translation))
-        W_codons.extend(list(codonify(record.seq)))
+def main(param_dict):
+    logger = create_logger()
+    warnings.filterwarnings("ignore")
 
-boundaries_aa = np.array(
-    boundaries_aa[1:]
-)  # an array annotating the genes' cumulative length
-W_aa = "".join(translated_record_list)
-sa = suffix_array(W_aa)
-W_aa_ambiguous = W_aa.replace("I", "L")
-sa_ambiguous = suffix_array(W_aa_ambiguous)
+    bases = "TCAG"
+    codons = [a + b + c for a in bases for b in bases for c in bases]
+    amino_acids = "FFLLSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG"  # corresponds to codons
+    RC = {"A": "T", "C": "G", "G": "C", "T": "A"}
 
-AAs = "ACDEFGHIKLMNPQRSTVWY"
-sites = list(AAs) + ["nterm", "cterm"]
+    codon_table = get_codon_table(codons, amino_acids)
+    inverted_codon_table = get_inverted_codon_table(codon_table)
+    inverted_codon_table["L"] = inverted_codon_table["L"] + inverted_codon_table["I"]
+    MW_dict = {
+        "G": 57.02147,
+        "A": 71.03712,
+        "S": 87.03203,
+        "P": 97.05277,
+        "V": 99.06842,
+        "T": 101.04768,
+        "I": 113.08407,
+        "L": 113.08407,
+        "N": 114.04293,
+        "D": 115.02695,
+        "Q": 128.05858,
+        "K": 128.09497,
+        "E": 129.0426,
+        "M": 131.04049,
+        "H": 137.05891,
+        "F": 147.06842,
+        "R": 156.10112,
+        "C": 160.030654,  # CamCys
+        "Y": 163.0633,
+        "W": 186.07932,
+    }
 
-dp_columns = [
-    "Raw file",
-    "Charge",
-    "m/z",
-    "Retention time",
-    "Sequence",
-    "Proteins",
-    "DP Base Sequence",
-    "DP Mass Difference",
-    "DP Time Difference",
-    "DP PEP",
-    "DP Base Sequence",
-    "DP Probabilities",
-    "DP Positional Probability",
-    "DP Decoy",
-]
+    subs_dict = {
+        i + " to " + j: MW_dict[j] - MW_dict[i]
+        for i in MW_dict
+        for j in MW_dict
+        if i != j
+    }
+    del subs_dict["L to I"]
+    del subs_dict["I to L"]
 
-df_iter = pd.read_csv(
-    path_to_allPeptides, sep="\t", chunksize=10000, iterator=True, usecols=dp_columns
-)
-dp = pd.concat(chunk[pd.notnull(chunk["DP Mass Difference"])] for chunk in df_iter)
-dp = dp[~dp["Raw file"].str.contains("|".join(excluded_samples))]
-dp.reset_index(drop=True, inplace=True)
+    for k, v in list(subs_dict.items()):  # unifies I and L
+        if k[-1] == "I":
+            subs_dict[k + "/L"] = v
+            del subs_dict[k]
+            del subs_dict[k[:-1] + "L"]
 
-dp["DPMD"] = dp["DP Mass Difference"]
-dp["DPAA_noterm"] = dp["DP Probabilities"].map(refine_localization_probabilities)
-dp["nterm"] = dp["DP Probabilities"].map(
-    n_term_probability
-)  # p(N-term AA was substituted)
-dp["cterm"] = dp["DP Probabilities"].map(c_term_probability)
-dp["prot_nterm"] = dp["DP Base Sequence"].map(
-    is_prot_nterm
-)  # Does the peptide come from the N-term of the protein
-dp["prot_cterm"] = dp["DP Base Sequence"].map(is_prot_cterm)
-
-
-""" Handles mass differences that can be explained as PTMs """
-danger_mods = pd.read_pickle("danger_mods")  # defined in randomize_substutions.py
-dp["danger"] = False
-for mod in danger_mods.iterrows():
-    mod = mod[1]
-    position = mod["position"]
-    site = mod["site"]
-    delta_m = mod["delta_m"]
-
-    mass_filter = (delta_m - (2 * tol) < dp.DPMD) & (dp.DPMD < delta_m + (2 * tol))
-
-    term_filter = True
-    if position == "Protein N-term":
-        term_filter = (dp.nterm > n_term_prob_cutoff) & dp.prot_nterm
-    elif position == "Protein C-term":
-        term_filter = (dp.cterm > c_term_prob_cutoff) & dp.prot_cterm
-    elif position == "Any N-term":
-        term_filter = dp.nterm > n_term_prob_cutoff
-    elif position == "Any C-term":
-        term_filter = dp.cterm > c_term_prob_cutoff
-
-    site_filter = True
-    if site in amino_acids:
-        site_filter = dp.DPAA_noterm.str.contains(site)
-
-    dp.loc[site_filter & term_filter & mass_filter, "danger"] = True
-
-
-dp["substitution"] = False
-for i in sorted(subs_dict.keys()):
-    delta_m = subs_dict[i]
-    original_aa = i[0]
-    dp.loc[
-        (dp.DPMD > delta_m - tol)
-        & (dp.DPMD < delta_m + tol)
-        & (dp["DPAA_noterm"] == original_aa)
-        & (dp["DP Positional Probability"] > 0.95)
-        & ~dp["danger"],
-        "substitution",
-    ] = i
-
-
-#%%
-"""
-Create mask for mispairing. A binary dataframe indicating for each codon the AAs encoded by near-cognate codons. 
-"""
-mask = pd.DataFrame(
-    data=False, index=codons, columns=list("ACDEFGHKLMNPQRSTVWY"), dtype=float
-)
-for label in codons:
-    near_cognates = np.array([hamming(i, label) == 1 for i in codons])
-    reachable_aa = set(np.array(list(amino_acids))[near_cognates])
-    mask.loc[label] = [i in reachable_aa for i in "ACDEFGHKLMNPQRSTVWY"]
-
-
-for label in mask.index:  # removes "near-cognates" that encodes the same AA
-    for col in mask.columns:
-        if label in inverted_codon_table[col]:
-            mask.loc[label, col] = float("NaN")
-
-#%%
-subs = dp[dp["substitution"] != False].copy()
-subs["proteins"] = subs["DP Base Sequence"].map(find_proteins)
-subs["protein"] = subs["proteins"].map(
-    lambda x: x.split(" ")[0] if len(x) > 0 else float("NaN")
-)
-subs = subs[pd.notnull(subs["protein"])]  # mismatching files?
-
-subs["codons"] = float("NaN")
-subs.loc[
-    subs["DP Positional Probability"] > positional_probability_cutoff, "codons"
-] = subs[subs["DP Positional Probability"] > positional_probability_cutoff][
-    "DP Probabilities"
-].map(
-    fetch_best_codons
-)
-subs["codon"] = subs["codons"].map(
-    lambda x: x.split(" ")[0] if len(set(x.split(" "))) == 1 else float("NaN")
-)
-subs["destination"] = subs["substitution"].map(lambda x: x[-1] if x else False)
-subs["origin"] = subs["substitution"].map(lambda x: x[0] if x else False)
-subs["mispairing"] = subs.apply(is_mispairing, 1)
-
-subs["positions"] = subs.apply(
-    lambda row: find_positions_local(row["DP Probabilities"], row["proteins"]), axis=1
-)
-subs["position"] = subs["positions"].map(
-    lambda x: int(x.split(" ")[0]) if len(set(x.split(" "))) == 1 else float("NaN")
-)
-subs["modified_sequence"] = subs.apply(
-    lambda row: create_modified_seq(row["DP Probabilities"], row["destination"]), axis=1
-)
-subs["modified_sequence"] = subs["modified_sequence"].map(lambda x: x.replace("I", "L"))
-subs = subs[subs["modified_sequence"].map(lambda x: find_homologous_peptide(x))]
-
-subs.sort_values("DP PEP", inplace=True)
-subs["decoy"] = pd.notnull(subs["DP Decoy"])
-cut_off = np.max(
-    np.where(
-        np.array(
-            [
-                i / float(j)
-                for i, j in zip(subs["decoy"].cumsum(), list(range(1, len(subs) + 1)))
-            ]
-        )
-        < fdr
+    sorted_subs, sorted_sub_masses = list(
+        zip(*sorted(list(subs_dict.items()), key=lambda x: x[1]))
     )
-)
-subs = subs.iloc[: cut_off + 1]
 
-#%%
-subs = subs[~subs.decoy]
+    """ Loads CDS fasta file and builds records of genes within it """
 
-subs.to_pickle(os.path.join(output_dir, "subs"))
-subs.to_csv(os.path.join(output_dir, "subs.csv"))
+    logger.info("Parse fasta")
+    record_list = []
+    translated_record_list = []
+    names_list = []
+    record_dict = {}
+    boundaries_aa = [0]
+    W_codons = []
+    for record in SeqIO.parse(open(param_dict["path_to_fasta"], "rU"), "fasta"):
+        record.seq = record.seq.upper()
+        if is_gene(record):
+            translation = str(record.seq.translate())
+            bits = record.description.split(param_dict["fasta_delimiter"])
+            for i in bits:
+                if "gene_symbol" in i:
+                    record.name = i.split(":")[-1]
+            record_list.append(record)
+            translated_record_list.append(translation)
+            names_list.append(record.name)
+            record_dict[record.name] = record
+            boundaries_aa.append(boundaries_aa[-1] + len(translation))
+            W_codons.extend(list(codonify(record.seq)))
+
+    boundaries_aa = np.array(
+        boundaries_aa[1:]
+    )  # an array annotating the genes' cumulative length
+    W_aa = "".join(translated_record_list)
+    sa = suffix_array(W_aa)
+    W_aa_ambiguous = W_aa.replace("I", "L")
+    sa_ambiguous = suffix_array(W_aa_ambiguous)
+
+    AAs = "ACDEFGHIKLMNPQRSTVWY"
+    sites = list(AAs) + ["nterm", "cterm"]
+
+    dp_columns = [
+        "Raw file",
+        "Charge",
+        "m/z",
+        "Retention time",
+        "Sequence",
+        "Proteins",
+        "DP Base Sequence",
+        "DP Mass Difference",
+        "DP Time Difference",
+        "DP PEP",
+        "DP Base Sequence",
+        "DP Probabilities",
+        "DP Positional Probability",
+        "DP Decoy",
+    ]
+
+    logger.info("Read input file")
+    df_iter = pd.read_csv(
+        param_dict["path_to_peptides"],
+        sep="\t",
+        chunksize=10000,
+        iterator=True,
+        usecols=dp_columns,
+    )
+    dp = pd.concat(chunk[pd.notnull(chunk["DP Mass Difference"])] for chunk in df_iter)
+    # dp = dp[~dp["Raw file"].str.contains("|".join(param_dict['excluded_samples']))]
+    logger.debug(f"Len DP after excluded_samples: {len(dp)}")
+    dp.reset_index(drop=True, inplace=True)
+
+    # define partial functions for using with map and apply
+    # ....
+
+    dp["DPMD"] = dp["DP Mass Difference"]
+    dp["DPAA_noterm"] = dp["DP Probabilities"].map(refine_localization_probabilities)
+    dp["nterm"] = dp["DP Probabilities"].map(
+        n_term_probability
+    )  # p(N-term AA was substituted)
+    dp["cterm"] = dp["DP Probabilities"].map(c_term_probability)
+    is_prot_nterm_p = partial(is_prot_nterm, W_aa=W_aa, sa=sa)
+    dp["prot_nterm"] = dp["DP Base Sequence"].map(
+        is_prot_nterm_p
+    )  # Does the peptide come from the N-term of the protein
+    is_prot_cterm_p = partial(is_prot_cterm, W_aa=W_aa, sa=sa)
+    dp["prot_cterm"] = dp["DP Base Sequence"].map(is_prot_cterm_p)
+
+    """ Handles mass differences that can be explained as PTMs """
+    logger.info("Filter mass diffs which can be explained as PTMs from unimod")
+    danger_mods = pd.read_pickle("danger_mods")  # defined in randomize_substutions.py
+    dp["danger"] = False
+    for mod in danger_mods.iterrows():
+        mod = mod[1]
+        position = mod["position"]
+        site = mod["site"]
+        delta_m = mod["delta_m"]
+        tol = float(param_dict["tol"])
+        mass_filter = (delta_m - (2 * tol) < dp.DPMD) & (dp.DPMD < delta_m + (2 * tol))
+
+        term_filter = True
+        n_term_prob_cutoff = float(param_dict["n_term_prob_cutoff"])
+        c_term_prob_cutoff = float(param_dict["c_term_prob_cutoff"])
+        if position == "Protein N-term":
+            term_filter = (dp.nterm > n_term_prob_cutoff) & dp.prot_nterm
+        elif position == "Protein C-term":
+            term_filter = (dp.cterm > c_term_prob_cutoff) & dp.prot_cterm
+        elif position == "Any N-term":
+            term_filter = dp.nterm > n_term_prob_cutoff
+        elif position == "Any C-term":
+            term_filter = dp.cterm > c_term_prob_cutoff
+
+        site_filter = True
+        if site in amino_acids:
+            site_filter = dp.DPAA_noterm.str.contains(site)
+
+        dp.loc[site_filter & term_filter & mass_filter, "danger"] = True
+
+    dp["substitution"] = False
+    for i in sorted(subs_dict.keys()):
+        delta_m = subs_dict[i]
+        original_aa = i[0]
+        dp.loc[
+            (dp.DPMD > delta_m - tol)
+            & (dp.DPMD < delta_m + tol)
+            & (dp["DPAA_noterm"] == original_aa)
+            & (dp["DP Positional Probability"] > 0.95)
+            & ~dp["danger"],
+            "substitution",
+        ] = i
+
+    #%%
+    """
+    Create mask for mispairing. A binary dataframe indicating for each codon the AAs encoded by near-cognate codons.
+    """
+    mask = pd.DataFrame(
+        data=False, index=codons, columns=list("ACDEFGHKLMNPQRSTVWY"), dtype=float
+    )
+    for label in codons:
+        near_cognates = np.array([hamming(i, label) == 1 for i in codons])
+        reachable_aa = set(np.array(list(amino_acids))[near_cognates])
+        mask.loc[label] = [i in reachable_aa for i in "ACDEFGHKLMNPQRSTVWY"]
+
+    for label in mask.index:  # removes "near-cognates" that encodes the same AA
+        for col in mask.columns:
+            if label in inverted_codon_table[col]:
+                mask.loc[label, col] = float("NaN")
+
+    #%%
+    subs = dp[dp["substitution"] != False].copy()
+    find_proteins_p = partial(
+        find_proteins,
+        boundaries_aa=boundaries_aa,
+        W_aa=W_aa,
+        sa=sa,
+        names_list=names_list,
+    )
+    subs["proteins"] = subs["DP Base Sequence"].map(find_proteins_p)
+    subs["protein"] = subs["proteins"].map(
+        lambda x: x.split(" ")[0] if len(x) > 0 else float("NaN")
+    )
+    subs = subs[pd.notnull(subs["protein"])]  # mismatching files?
+
+    subs["codons"] = float("NaN")
+    positional_probability_cutoff = float(param_dict["positional_probability_cutoff"])
+
+    fetch_best_codons_p = partial(
+        fetch_best_codons, find_proteins_func=find_proteins_p, record_dict=record_dict
+    )
+    subs.loc[
+        subs["DP Positional Probability"] > positional_probability_cutoff, "codons"
+    ] = subs[subs["DP Positional Probability"] > positional_probability_cutoff][
+        "DP Probabilities"
+    ].map(
+        fetch_best_codons_p
+    )
+    subs["codon"] = subs["codons"].map(
+        lambda x: x.split(" ")[0] if len(set(x.split(" "))) == 1 else float("NaN")
+    )
+    subs["destination"] = subs["substitution"].map(lambda x: x[-1] if x else False)
+    subs["origin"] = subs["substitution"].map(lambda x: x[0] if x else False)
+    is_mispairing_p = partial(is_mispairing, mask=mask)
+    subs["mispairing"] = subs.apply(is_mispairing_p, 1)
+
+    find_positions_local_p = partial(find_positions_local, record_dict=record_dict)
+    subs["positions"] = subs.apply(
+        lambda row: find_positions_local_p(row["DP Probabilities"], row["proteins"]),
+        axis=1,
+    )
+    subs["position"] = subs["positions"].map(
+        lambda x: int(x.split(" ")[0]) if len(set(x.split(" "))) == 1 else float("NaN")
+    )
+    subs["modified_sequence"] = subs.apply(
+        lambda row: create_modified_seq(row["DP Probabilities"], row["destination"]),
+        axis=1,
+    )
+    subs["modified_sequence"] = subs["modified_sequence"].map(
+        lambda x: x.replace("I", "L")
+    )
+
+    find_homologous_peptide_p = partial(
+        find_homologous_peptide,
+        W_aa_ambiguous=W_aa_ambiguous,
+        sa_ambiguous=sa_ambiguous,
+    )
+    subs = subs[subs["modified_sequence"].map(lambda x: find_homologous_peptide_p(x))]
+
+    subs.sort_values("DP PEP", inplace=True)
+    subs["decoy"] = pd.notnull(subs["DP Decoy"])
+    cut_off = np.max(
+        np.where(
+            np.array(
+                [
+                    i / float(j)
+                    for i, j in zip(
+                        subs["decoy"].cumsum(), list(range(1, len(subs) + 1))
+                    )
+                ]
+            )
+            < float(param_dict["fdr"])
+        )
+    )
+    subs = subs.iloc[: cut_off + 1]
+
+    #%%
+    subs = subs[~subs.decoy]
+
+    logger.debug(f"Len subs after filtering: {len(subs)}")
+    subs.to_pickle(os.path.join(param_dict["output_dir"], "subs"))
+    subs.to_csv(os.path.join(param_dict["output_dir"], "subs.csv"))
